@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>无限回响：生肖灵宝</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="screen" id="menu">
+  <h1>无限回响</h1>
+  <div class="sub">生 肖 灵 宝</div>
+  <button class="btn primary" id="btnNewGame">🎮 新 的 旅 程</button>
+  <button class="btn" id="btnContinue">📖 继 续 冒 险</button>
+  <button class="btn" id="btnCodex">📚 灵 兽 图 鉴</button>
+  <div class="versionTag">v0.2.1 · 全自动挂机版</div>
+</div>
+
+<div class="screen hidden" id="explore">
+  <div id="worldBg"></div>
+  <div id="worldDecor"></div>
+  <div id="player"></div>
+  <div id="interactBtn" class="hidden"></div>
+
+  <div id="exploreUI">
+    <div id="topBar">
+      <div>
+        <div id="locName">青石村</div>
+        <div id="locSub">安全区</div>
+      </div>
+      <div id="playerInfo">
+        <div>💰 <b id="goldTxt">0</b></div>
+        <div>🎯 <b id="petCount">0/5</b></div>
+      </div>
+    </div>
+    <div id="joyZone">
+      <div id="joyBase"></div>
+      <div id="joyKnob"></div>
+    </div>
+    <div id="rightBtns">
+      <div class="circleBtn" id="btnAuto" title="自动探索">🚶</div>
+      <div class="circleBtn" id="btnBag">🎒</div>
+      <div class="circleBtn" id="btnTeam">👥</div>
+      <div class="circleBtn" id="btnHome">🏠</div>
+    </div>
+  </div>
+</div>
+
+<div class="screen hidden" id="battle">
+  <div id="battleField">
+    <div id="combatArea">
+      <div id="enemyRow"></div>
+      <div id="playerRow"></div>
+    </div>
+    <div id="battleLogArea"><div id="battleLogList"></div></div>
+  </div>
+
+  <div id="battleUI">
+    <div id="battleMsg">等待行动...</div>
+    <div id="actionBar">
+      <button class="actionBtn" data-act="skill"><span class="icon">✨</span>技能</button>
+      <button class="actionBtn" data-act="item"><span class="icon">🎒</span>道具</button>
+      <button class="actionBtn capture" data-act="capture"><span class="icon">🔮</span>捕捉</button>
+      <button class="actionBtn escape" data-act="escape"><span class="icon">🏃</span>逃跑</button>
+      <button class="actionBtn" data-act="auto"><span class="icon">🤖</span>自动</button>
+    </div>
+  </div>
+
+  <div id="subMenu" class="hidden">
+    <div id="subTitle">选择</div>
+    <div id="subList"></div>
+    <button id="subBack">返 回</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="bagPanel">
+  <div class="panel">
+    <div class="panelTitle">🎒 背包</div>
+    <div class="panelSub">金币 <span id="bagGold">0</span></div>
+    <div id="bagList"></div>
+    <button class="btn primary" id="bagClose" style="width:100%;margin-top:14px">关 闭</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="teamPanel">
+  <div class="panel">
+    <div class="panelTitle">👥 灵兽队伍</div>
+    <div class="panelSub">点击查看详情 · 最多 5 只出战</div>
+    <div id="teamList"></div>
+    <button class="btn primary" id="teamClose" style="width:100%;margin-top:14px">关 闭</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="petPanel">
+  <div class="panel">
+    <div class="panelTitle" id="petName">灵兽名</div>
+    <div class="panelSub" id="petSub">Lv.1 · 属性</div>
+    <div id="petInfo"></div>
+    <div class="sectionTitle">技 能</div>
+    <div id="petSkills"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn" id="petToggle" style="flex:1">上 阵</button>
+      <button class="btn primary" id="petClose" style="flex:1">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="codexPanel">
+  <div class="panel">
+    <div class="panelTitle">📚 灵兽图鉴</div>
+    <div class="panelSub" id="codexSub">已收集</div>
+    <div id="codexGrid" class="codexGrid"></div>
+    <button class="btn primary" id="codexClose" style="width:100%;margin-top:14px">关 闭</button>
+  </div>
+</div>
+
+<div class="hidden" id="dialog">
+  <div id="dlgHeader">
+    <div id="dlgAvatar">👤</div>
+    <div id="dlgName"></div>
+  </div>
+  <div id="dlgText"></div>
+  <div id="dlgOptions"></div>
+</div>
+
+<div id="toast"></div>
+<div id="fxLayer"></div>
+
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/explore.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
