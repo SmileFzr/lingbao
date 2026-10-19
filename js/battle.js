@@ -27,6 +27,7 @@ function startBattle() {
 
   $('battleLogList').innerHTML = ''; logBattle('⚔️ 遭遇野生灵兽！', 'system');
   showScreen('battle'); renderBattle();
+  playMusic('battle');
 
   const autoBtn = document.querySelector('.actionBtn[data-act="auto"]');
   if (autoBtn) autoBtn.classList.toggle('on', G.battle.auto);
@@ -517,15 +518,12 @@ function backToExplore() {
   updateExploreUI();
 
   if (G.autoBattle) {
-      G.autoExplore = true;
-      if (isInTown()) {
-          G.px = 0;
-          G.py = 650;
-          updateWorldDecor();
-      }
-      updateExploreUI();
+    G.autoExplore = true;
+    if (G.currentMap === 'town') teleportToField();
+    updateExploreUI();
   }
 
+  playMusic(G.currentMap === 'town' ? 'town' : 'field');
   checkAutoResupply();
 }
 
@@ -537,7 +535,7 @@ function checkAutoResupply() {
     if (!hasOrb || !hasPotion || needHeal) {
         toast("物资匮乏，自动返回城镇补给...");
         setTimeout(() => {
-            G.px = 0; G.py = 0; updateWorldDecor();
+            teleportToTown();
             for (const p of G.party) p.hp = p.maxHp;
 
             if (!hasOrb && G.gold >= ITEMS.orb.price) {
@@ -563,8 +561,7 @@ function checkAutoResupply() {
                 if (G.autoBattle) {
                     toast("补给完毕，继续出城探索...");
                     G.autoExplore = true;
-                    if (isInTown()) { G.px = 0; G.py = 650; updateWorldDecor(); }
-                    updateExploreUI();
+                    teleportToField();
                 }
             }, 800);
         }, 1000);
