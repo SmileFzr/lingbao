@@ -1,76 +1,116 @@
 "use strict";
 
 /* ============================================================
-   场景与探索
+   场景与探索 - 双地图系统（城镇 / 野外）
    ============================================================ */
-const world = { decor: [], towns: [] };
+
+const townBuildings = [
+  { id:'shop',   name:'商店',     icon:'🏪', x: 300, y: 250,  type:'shop' },
+  { id:'center', name:'灵兽中心', icon:'🏥', x:-350, y: 100,  type:'center' },
+  { id:'arena',  name:'教堂',     icon:'⛪', x:   0, y:-350,  type:'arena' },
+  { id:'board',  name:'任务板',   icon:'📋', x: 450, y:  50,  type:'board' },
+  { id:'smith',  name:'铁匠铺',   icon:'🔨', x:-300, y: 300,  type:'smith' },
+];
+
+const TOWN_RADIUS  = 500;
+const TOWN_EXIT    = { x: 0, y: 450 };
+const FIELD_RADIUS = 1800;
+const FIELD_VILLAGE = { x: 0, y: 0 };
+
 const exp = { joyActive:false, joyId:null, joyOX:0, joyOY:0, joyDX:0, joyDY:0 };
 let currentInteract = null;
 let autoExploreTimer = 0;
 let exploreAutoDir = {x:0, y:0};
+let exploreRAF = null, lastExploreT = 0, encounterSteps = 0;
 
 function initExplore() {
+  G.currentMap = 'town';
+  G.px = 0; G.py = 300;
   renderWorldDecor(); updateExploreUI();
   $('player').textContent = '🧙‍♂️';
   $('player').style.left = '50%'; $('player').style.top = '50%';
   startExploreLoop(); showScreen('explore');
+  playMusic(G.currentMap === 'town' ? 'town' : 'field');
 }
 
+/* ============ 地图渲染 ============ */
 function renderWorldDecor() {
   const d = $('worldDecor'); if (!d) return; d.innerHTML = '';
-  world.towns = [
-    { id:'town1', name:'青石村', x:0, y:0, radius:600, buildings:[
-      { id:'shop', name:'商店', icon:'🏪', x: 300, y: 250, type:'shop' },
-      { id:'center', name:'灵兽中心', icon:'🏥', x:-350, y: 100, type:'center' },
-      { id:'arena', name:'教堂', icon:'⛪', x: 0, y:-350, type:'arena' },
-      { id:'board', name:'任务板', icon:'📋', x: 450, y: 50, type:'board' },
-      { id:'smith', name:'铁匠铺', icon:'🔨', x:-300, y: 300, type:'smith' },
-    ]},
-  ];
+  if (G.currentMap === 'town') renderTownMap(d);
+  else renderFieldMap(d);
+  updateWorldDecor();
+}
 
-  const mapLayout = [
-    { e: '☁️', x: -400, y: -600, s: 100, z: 1 }, { e: '☁️', x: 300, y: -700, s: 80, z: 1 },
-    { e: '☀️', x: 500, y: -700, s: 120, z: 1 }, { e: '⛰️', x: 0, y: -600, s: 240, z: 2 },
-    { e: '🌲', x: -550, y: -200, s: 120, z: 5 }, { e: '🌳', x: -350, y: -450, s: 90, z: 5 },
-    { e: '🌳', x: 250, y: -400, s: 90, z: 5 }, { e: '🌳', x: -550, y: 150, s: 130, z: 5 },
-    { e: '🌲', x: 300, y: 380, s: 100, z: 5 }, { e: '🌲', x: 600, y: 200, s: 110, z: 5 },
-    { e: '⛲', x: 0, y: 0, s: 100, z: 30 }, { e: '🐰', x: 150, y: -100, s: 60, z: 30 },
-    { e: '🌻', x: 100, y: 50, s: 50, z: 30 }, { e: '🌷', x: -50, y: -100, s: 30, z: 30 },
-    { e: '🍄', x: 250, y: 80, s: 40, z: 30 }, { e: '🪵', x: -250, y: 200, s: 60, z: 30 },
-    { e: '🦊', x: 550, y: 380, s: 60, z: 30 }, { e: '🐶', x: -300, y: 450, s: 60, z: 30 },
-  ];
+function addDecorEl(parent, emoji, x, y, size, z) {
+  const el = document.createElement('div');
+  el.className = 'decor'; el.textContent = emoji;
+  el.dataset.x = x; el.dataset.y = y;
+  el.style.fontSize = size + 'px';
+  el.style.zIndex = z;
+  parent.appendChild(el);
+  return el;
+}
 
-  const wallRadius = 600;
+function renderTownMap(d) {
+  // 围墙（底部留出口缺口）
   for (let a = 0; a < TAU; a += 0.12) {
-    if (Math.abs(a - Math.PI / 2) < 0.25) continue;
-    const wx = Math.cos(a) * wallRadius, wy = Math.sin(a) * wallRadius;
-    const walls = ['🌳', '🌲', '🪨', '🌿', '🪵', '🌵'];
-    mapLayout.push({ e: pick(walls), x: wx, y: wy, s: rnd(70, 90), z: 20 });
+    if (Math.abs(a - Math.PI / 2) < 0.22) continue;
+    const x = Math.cos(a) * TOWN_RADIUS;
+    const y = Math.sin(a) * TOWN_RADIUS;
+    addDecorEl(d, pick(['🌳','🌲','🪨','🌿']), x, y, rnd(70, 90), 20);
   }
-  mapLayout.push({ e: '🪵', x: -110, y: wallRadius, s: 80, z: 20 });
-  mapLayout.push({ e: '🪵', x: 110, y: wallRadius, s: 80, z: 20 });
+  // 出口标识
+  addDecorEl(d, '🪧', TOWN_EXIT.x, TOWN_EXIT.y - 40, 60, 25);
+  addDecorEl(d, '🪵', TOWN_EXIT.x - 80, TOWN_EXIT.y, 60, 20);
+  addDecorEl(d, '🪵', TOWN_EXIT.x + 80, TOWN_EXIT.y, 60, 20);
 
-  for (const b of world.towns[0].buildings) {
-    const base = document.createElement('div');
-    base.className = 'decor'; base.textContent = '🏠';
-    base.dataset.x = b.x; base.dataset.y = b.y;
-    base.style.fontSize = '100px'; base.style.zIndex = '10';
-    d.appendChild(base);
+  // 中央装饰
+  addDecorEl(d, '⛲', 0, 0, 100, 30);
+  addDecorEl(d, '🌻', 100, 50, 50, 30);
+  addDecorEl(d, '🌷', -80, -60, 35, 30);
+  addDecorEl(d, '🍄', 250, 80, 40, 30);
+  addDecorEl(d, '🐰', 150, -100, 55, 30);
+  addDecorEl(d, '🦊', -200, 180, 55, 30);
+
+  // 建筑
+  for (const b of townBuildings) {
+    addDecorEl(d, '🏠', b.x, b.y, 100, 10);
     const icon = document.createElement('div');
     icon.className = 'building-icon'; icon.textContent = b.icon;
     icon.dataset.x = b.x; icon.dataset.y = b.y - 70;
     d.appendChild(icon);
   }
+}
 
-  for (const item of mapLayout) {
-    const el = document.createElement('div');
-    el.className = 'decor'; el.textContent = item.e;
-    el.dataset.x = item.x; el.dataset.y = item.y;
-    el.style.fontSize = item.s + 'px';
-    el.style.zIndex = item.z;
-    d.appendChild(el);
+function renderFieldMap(d) {
+  // 外围边界树木/山
+  for (let a = 0; a < TAU; a += 0.08) {
+    const x = Math.cos(a) * FIELD_RADIUS;
+    const y = Math.sin(a) * FIELD_RADIUS;
+    addDecorEl(d, pick(['🌲','🌳','🪨','⛰️','🌵']), x, y, rnd(80, 120), 20);
   }
-  updateWorldDecor();
+  // 内部随机散落
+  const decorList = ['🌲','🌳','🪨','🌿','🌵','🍄','🌻','🪵'];
+  for (let i = 0; i < 80; i++) {
+    const a = Math.random() * TAU;
+    const r = rnd(320, FIELD_RADIUS - 120);
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (Math.hypot(x, y) < 250) continue; // 避开村庄周围
+    addDecorEl(d, pick(decorList), x, y, rnd(50, 100), 5 + Math.floor(rnd(0, 10)));
+  }
+  // 远景
+  addDecorEl(d, '⛰️', -900, -900, 240, 2);
+  addDecorEl(d, '⛰️',  900, -700, 200, 2);
+  addDecorEl(d, '☁️', -600, -1100, 100, 1);
+  addDecorEl(d, '☁️',  500, -1000, 100, 1);
+
+  // 青石村入口（🏠）
+  addDecorEl(d, '🏠', FIELD_VILLAGE.x, FIELD_VILLAGE.y, 120, 15);
+  addDecorEl(d, '🪧', FIELD_VILLAGE.x + 100, FIELD_VILLAGE.y - 20, 55, 16);
+
+  // 野外生物
+  addDecorEl(d, '🐰', 250, 200, 50, 30);
+  addDecorEl(d, '🦌', -300, -400, 60, 30);
 }
 
 function updateWorldDecor() {
@@ -87,14 +127,17 @@ function updateWorldDecor() {
 function updateExploreUI() {
   const g = $('goldTxt'); if (g) g.textContent = G.gold;
   const pc = $('petCount'); if (pc) pc.textContent = G.team.length + '/' + Math.min(5, G.party.length);
-  const loc = $('locName');
-  const sub = $('locSub');
-  if (isInTown()) { loc.textContent = '青石村'; sub.textContent = '安全区'; }
-  else { loc.textContent = '城外野外'; sub.textContent = '危险区域'; }
+  const loc = $('locName'), sub = $('locSub');
+  if (G.currentMap === 'town') {
+    loc.textContent = '青石村'; sub.textContent = '安全区';
+  } else {
+    loc.textContent = '野外'; sub.textContent = '危险区域';
+  }
   const btnAuto = $('btnAuto');
   if (btnAuto) btnAuto.classList.toggle('on', G.autoExplore);
 }
 
+/* ============ 摇杆 ============ */
 function setupJoystick() {
   const zone = $('joyZone'), base = $('joyBase'), knob = $('joyKnob');
   if (!zone || !base || !knob) return;
@@ -135,7 +178,7 @@ function setupJoystick() {
   window.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
 }
 
-let exploreRAF = null, lastExploreT = 0, encounterSteps = 0;
+/* ============ 探索主循环 ============ */
 function startExploreLoop() {
   if (exploreRAF) return; lastExploreT = performance.now();
   const loop = (now) => {
@@ -168,27 +211,24 @@ function updateExplore(dt) {
     let nextX = G.px + mx * speed * dt;
     let nextY = G.py + my * speed * dt;
 
-    const town = currentTown();
-    if (town) {
-      const dist = Math.hypot(nextX - town.x, nextY - town.y);
-      if (dist > town.radius) {
-        const inGap = Math.abs(nextX - town.x) < 100 && nextY > town.y;
-        if (!inGap) {
-          const angle = Math.atan2(nextY - town.y, nextX - town.x);
-          nextX = town.x + Math.cos(angle) * (town.radius - 10);
-          nextY = town.y + Math.sin(angle) * (town.radius - 10);
-          if (G.autoExplore) autoExploreTimer = 0;
-        }
-      }
+    // 边界约束
+    const R = G.currentMap === 'town' ? TOWN_RADIUS - 30 : FIELD_RADIUS - 100;
+    const dist = Math.hypot(nextX, nextY);
+    if (dist > R) {
+      const angle = Math.atan2(nextY, nextX);
+      nextX = Math.cos(angle) * R;
+      nextY = Math.sin(angle) * R;
+      if (G.autoExplore) autoExploreTimer = 0;
     }
 
     G.px = nextX; G.py = nextY;
 
     $('player').classList.add('walking');
-    setTimeout(()=>$('player').classList.remove('walking'), 100);
+    setTimeout(() => $('player').classList.remove('walking'), 100);
     updateWorldDecor();
 
-    if (!isInTown()) {
+    // 野外遇敌
+    if (G.currentMap === 'field') {
       encounterSteps += len * dt * 30;
       if (encounterSteps > rndi(30, 60)) { encounterSteps = 0; startBattle(); return; }
     } else { encounterSteps = 0; }
@@ -196,31 +236,39 @@ function updateExplore(dt) {
   updateInteract();
 }
 
-function isInTown() {
-  for (const t of world.towns) { if (Math.hypot(G.px - t.x, G.py - t.y) < t.radius) return true; }
-  return false;
-}
-function currentTown() {
-  for (const t of world.towns) { if (Math.hypot(G.px - t.x, G.py - t.y) < t.radius + 50) return t; }
-  return null;
-}
-
+/* ============ 交互按钮 ============ */
 function updateInteract() {
   const btn = $('interactBtn'); if (!btn) return;
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-  let nearest = null, nd = Infinity; const town = currentTown();
-  if (town) {
-    for (const b of town.buildings) {
-      const wx = town.x + b.x, wy = town.y + b.y;
-      const d = Math.hypot(G.px - wx, G.py - wy);
-      if (d < 100 && d < nd) { nd = d; nearest = { type:'building', data:b, x:wx, y:wy - 80 }; }
+  let nearest = null, nd = Infinity;
+
+  if (G.currentMap === 'town') {
+    for (const b of townBuildings) {
+      const d = Math.hypot(G.px - b.x, G.py - b.y);
+      if (d < 110 && d < nd) { nd = d; nearest = { type:'building', data:b, x:b.x, y:b.y - 80 }; }
+    }
+    const dExit = Math.hypot(G.px - TOWN_EXIT.x, G.py - TOWN_EXIT.y);
+    if (dExit < 120 && dExit < nd) {
+      nd = dExit;
+      nearest = { type:'exit', x: TOWN_EXIT.x, y: TOWN_EXIT.y - 70 };
+    }
+  } else {
+    const dVill = Math.hypot(G.px - FIELD_VILLAGE.x, G.py - FIELD_VILLAGE.y);
+    if (dVill < 160) {
+      nearest = { type:'enterTown', x: FIELD_VILLAGE.x, y: FIELD_VILLAGE.y - 90 };
     }
   }
+
   if (nearest) {
     currentInteract = nearest; btn.classList.remove('hidden');
-    btn.style.left = (cx + nearest.x - G.px) + 'px'; btn.style.top  = (cy + nearest.y - G.py) + 'px';
-    btn.innerHTML = '<span>' + nearest.data.icon + '</span>' + nearest.data.name;
-  } else { btn.classList.add('hidden'); currentInteract = null; }
+    btn.style.left = (cx + nearest.x - G.px) + 'px';
+    btn.style.top  = (cy + nearest.y - G.py) + 'px';
+    if (nearest.type === 'exit') btn.innerHTML = '🚪 离开城镇';
+    else if (nearest.type === 'enterTown') btn.innerHTML = '🏠 进入青石村';
+    else btn.innerHTML = '<span>' + nearest.data.icon + '</span>' + nearest.data.name;
+  } else {
+    btn.classList.add('hidden'); currentInteract = null;
+  }
 }
 
 function setupInteractBtn() {
@@ -228,10 +276,52 @@ function setupInteractBtn() {
   btn.addEventListener('click', (e) => {
     e.stopPropagation(); if (!currentInteract) return;
     if (currentInteract.type === 'building') openBuilding(currentInteract.data);
+    else if (currentInteract.type === 'exit') leaveTown();
+    else if (currentInteract.type === 'enterTown') enterTown();
   });
 }
 
-/* 建筑功能 */
+/* ============ 地图切换 ============ */
+function enterTown() {
+  G.currentMap = 'town';
+  G.px = TOWN_EXIT.x;
+  G.py = TOWN_EXIT.y - 180;
+  encounterSteps = 0;
+  renderWorldDecor(); updateWorldDecor(); updateExploreUI(); updateInteract();
+  toast('回到了青石村');
+  playMusic('town');
+}
+
+function leaveTown() {
+  G.currentMap = 'field';
+  G.px = FIELD_VILLAGE.x;
+  G.py = FIELD_VILLAGE.y + 200;
+  encounterSteps = 0;
+  renderWorldDecor(); updateWorldDecor(); updateExploreUI(); updateInteract();
+  toast('离开了青石村');
+  playMusic('field');
+}
+
+function teleportToTown() {
+  G.currentMap = 'town';
+  G.px = 0; G.py = 0;
+  encounterSteps = 0;
+  renderWorldDecor(); updateWorldDecor(); updateExploreUI(); updateInteract();
+  playMusic('town');
+}
+
+function teleportToField() {
+  G.currentMap = 'field';
+  G.px = FIELD_VILLAGE.x;
+  G.py = FIELD_VILLAGE.y + 200;
+  encounterSteps = 0;
+  renderWorldDecor(); updateWorldDecor(); updateExploreUI(); updateInteract();
+  playMusic('field');
+}
+
+function isInTown() { return G.currentMap === 'town'; }
+
+/* ============ 建筑功能 ============ */
 function openBuilding(b) {
   if (b.type === 'shop') return openShop();
   if (b.type === 'center') return openCenter();
