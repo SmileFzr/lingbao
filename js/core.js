@@ -5,7 +5,10 @@ function saveGame() {
     const data = {
       gold: G.gold, items: G.items,
       party: G.party.map(p => ({ id:p.id, speciesId:p.speciesId, name:p.name, emoji:p.emoji, element:p.element, level:p.level, exp:p.exp, expNext:p.expNext, isVariant:p.isVariant, maxHp:p.maxHp, hp:p.hp, stats:p.stats, skills:p.skills })),
-      team: G.team.slice(), px: G.px, py: G.py, codex: G.codex, petSeq
+      team: G.team.slice(), px: G.px, py: G.py, codex: G.codex, petSeq,
+      /* 大世界进度 */
+      map: G.currentMap === 'cave' ? 'field' : G.currentMap,
+      region: G.region, seenRegions: G.seenRegions, seenSites: G.seenSites, bosses: G.bosses
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) {}
@@ -18,6 +21,10 @@ function loadGame() {
     G.gold = d.gold || 0; G.items = d.items || {};
     G.party = (d.party || []).map(p => ({ ...p, buffs: [] }));
     G.team = d.team || []; G.px = d.px || 0; G.py = d.py || 0; G.codex = d.codex || {}; petSeq = d.petSeq || (G.party.length + 1);
+    G.currentMap = (d.map === 'town') ? 'town' : 'field';
+    G.region = d.region || 'grassland';
+    G.seenRegions = d.seenRegions || {}; G.seenSites = d.seenSites || {}; G.bosses = d.bosses || {};
+    G.cave = null; G.walkTarget = null; G.marker = null;
     return true;
   } catch (e) { return false; }
 }
@@ -37,6 +44,9 @@ function showScreen(name) {
 function initNewGame() {
   G.gold = 300; G.items = { potion:5, orb:5, orb2:1 };
   G.party = []; G.team = []; G.codex = {}; G.px = 0; G.py = 0; petSeq = 1;
+  G.currentMap = 'town'; G.region = 'grassland';
+  G.seenRegions = { grassland: true }; G.seenSites = {}; G.bosses = {};
+  G.cave = null; G.walkTarget = null; G.marker = null;
   const p1 = createPet('tiger', 5); const p2 = createPet('dragon', 5);
   G.party.push(p1, p2); G.team.push(p1.id, p2.id);
   saveGame();

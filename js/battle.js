@@ -3,29 +3,64 @@
 /* ============================================================
    战斗系统核心
    ============================================================ */
-function startBattle() {
-  if (G.autoExplore) { G.autoExplore = false; updateExploreUI(); }
+/* 按区域挑野生灵兽：让每个区域有自己的"生态" */
+const REGION_POOLS = {
+  grassland: ['rabbit','goat','horse','monkey','dog','pig','rat','ox','leaf','wind','tiger'],
+  forest:    ['deer','leaf','rabbit','monkey','goat','wind','snake','tiger','dog'],
+  desert:    ['flame','stone','snake','horse','rooster','bolt','shadow','scorpion'],
+  ocean:     ['aqua','pig','frost','octo','turtle'],
+  ruins:     ['skeleton','shadow','stone','bolt','dog','ox','rat','flame'],
+};
+function regionSpeciesPool(rid) {
+  const pool = REGION_POOLS[rid] || REGION_POOLS.grassland;
+  return pool.filter(id => !!findSpecies(id));
+}
 
-  const count = rndi(1, 3); const enemies = [];
-  for (let i = 0; i < count; i++) {
-    const sp = pick(ALL_SPECIES), isV = isZodiac(sp.id) && Math.random() < 0.05;
-    const lv = Math.max(1, Math.round(G.party[0] ? G.party[0].level + rnd(-1, 1) : 3));
-    const e = createPet(sp.id, lv, isV); e.isEnemy = true; e.buffs = []; enemies.push(e);
-  }
+function startBattle(opts) {
+  opts = opts || {};
+  if (G.autoExplore) { G.autoExplore = false; updateExploreUI(); }
+  if (G.walkTarget) G.walkTarget = null;
+
   const myTeam = G.team.map(id => G.party.find(p => p.id === id)).filter(Boolean).slice(0, 5);
   if (myTeam.length === 0) { toast('没有可出战的灵兽'); return; }
+
+  const enemies = [];
+  const isBoss = !!opts.boss;
+
+  if (isBoss) {
+    const topLv = G.party.reduce((m, p) => Math.max(m, p.level), 1);
+    const b = createBoss(opts.boss, Math.max(10, topLv + 1));
+    if (!b) return;
+    enemies.push(b);
+    if (G.codex) G.codex[b.speciesId] = true;
+  } else {
+    const rid = (G.currentMap === 'field') ? regionAt(G.px, G.py) : 'grassland';
+    const pool = regionSpeciesPool(rid);
+    const count = rndi(1, 3);
+    for (let i = 0; i < count; i++) {
+      const sid = pool.length ? pick(pool) : pick(ALL_SPECIES).id;
+      const isV = isZodiac(sid) && Math.random() < 0.05;
+      const lv = Math.max(1, Math.round(G.party[0] ? G.party[0].level + rnd(-1, 1) : 3));
+      const e = createPet(sid, lv, isV); e.isEnemy = true; e.buffs = []; enemies.push(e);
+    }
+  }
+
   for (const p of myTeam) { p.buffs = []; p.isEnemy = false; }
 
   G.battle = {
     enemies, team: myTeam, ended: false, auto: G.autoBattle,
-    turn: 1, actions: {}, targetEnemyId: null
+    turn: 1, actions: {}, targetEnemyId: null,
+    isBoss, bossRegion: opts.boss || null,
   };
 
   if (enemies.filter(e => e.hp > 0).length === 1) {
       G.battle.targetEnemyId = enemies[0].id;
   }
 
-  $('battleLogList').innerHTML = ''; logBattle('⚔️ 遭遇野生灵兽！', 'system');
+  $('battleLogList').innerHTML = '';
+  logBattle(isBoss
+    ? '👑 <b>' + enemies[0].name + '</b> 挡住了去路！'
+    : '⚔️ 遭遇野生灵兽！', 'system');
   showScreen('battle'); renderBattle();
   playMusic('battle');
 
@@ -34,6 +69,11 @@ function startBattle() {
 
   updateBattleMsg(G.battle.targetEnemyId ? '已自动锁定目标' : '请点击上方敌人选择目标');
   beginTurn();
+}
+
+/* 区域 BOSS 战 */
+function startBossBattle(regionId) {
+  startBattle({ boss: regionId });
 }
 
 function renderBattle() {
@@ -340,8 +380,9 @@ function executeOneAction(item, next) {
       const target = oppSide.find(e => e.id === action.targetId && e.hp > 0) || getBestTarget(unit, aliveOpp);
       G.items[action.itemId]--;
 
-      const baseRate = action.itemId === 'orb2' ? 0.4 : 0.25;
-      const rate = clamp(baseRate + (1 - target.hp / target.maxHp) * 0.5, 0.05, 0.95);
+      const baseRate = action.itemId === 'orb3' ? 0.6 : action.itemId === 'orb2' ? 0.4 : 0.25;
+      let rate = clamp(baseRate + (1 - target.hp / target.maxHp) * 0.5, 0.05, 0.95);
+      if (target.isBoss) rate = clamp(rate * 0.35, 0.02, 0.6);   // BOSS 难抓，但不是不能抓
 
       const curUnitEl = document.getElementById('unit_' + unit.id);
       const curTargetEl = document.getElementById('unit_' + target.id);
@@ -351,9 +392,16 @@ function executeOneAction(item, next) {
 
       setTimeout(() => {
         if (Math.random() < rate) {
-          const newPet = createPet(target.speciesId, target.level, target.isVariant);
+          const newPet = target.isBoss
+            ? createBossAlly(target.bossRegion, target.level)
+            : createPet(target.speciesId, target.level, target.isVariant);
           G.party.push(newPet); saveGame();
           logBattle(`🔮 <b>${target.name}</b> 被成功捕捉了！`, 'capture');
+          if (target.isBoss) {
+            G.bosses[target.bossRegion] = true;
+            G.battle.bossCaptured = true;
+            logBattle('👑 你收服了区域霸主！', 'capture');
+          }
           target.hp = 0; renderBattle(); toast('捕捉成功');
         } else {
           logBattle(`💨 <b>${target.name}</b> 挣脱了灵气球。`, 'system'); toast('捕捉失败');
@@ -463,28 +511,44 @@ function endBattle(result) {
   if (result === 'win') {
     let gold = 0, exp = 0;
     for (const e of G.battle.enemies) { gold += 10 + e.level * 5; exp += 15 + e.level * 8; }
+    /* 区域 BOSS：额外金币 + 传说灵气球 + 记录讨伐 */
+    const bossRegion = G.battle.isBoss ? G.battle.bossRegion : null;
+    let bossOrb = 0;
+    if (bossRegion && BOSSES[bossRegion]) {
+      const bd = BOSSES[bossRegion];
+      gold += bd.gold; bossOrb = bd.orb || 1;
+      G.bosses[bossRegion] = true;
+      G.items.orb3 = (G.items.orb3 || 0) + bossOrb;
+      G.codex['boss_' + bossRegion] = true;
+    }
     G.gold += gold;
     for (const p of G.battle.team) {
       if (p.hp <= 0) continue; p.exp += exp;
       while (p.exp >= p.expNext) {
         p.exp -= p.expNext; p.level++; p.expNext = expForLevel(p.level);
-        const sp = findSpecies(p.speciesId); const statMult = 1 + (p.level - 1) * 0.08, variantMult = p.isVariant ? 1.2 : 1;
-        p.maxHp = Math.round(sp.baseStats.hp * statMult * variantMult); p.stats.hp = p.maxHp;
-        p.stats.atk = Math.round(sp.baseStats.atk * statMult * variantMult);
-        p.stats.def = Math.round(sp.baseStats.def * statMult * variantMult);
-        p.stats.matk = Math.round(sp.baseStats.matk * statMult * variantMult);
-        p.stats.mdef = Math.round(sp.baseStats.mdef * statMult * variantMult);
-        p.stats.spd = Math.round(sp.baseStats.spd * statMult * variantMult);
+        /* 普通灵兽用品种基础值；被收服的 BOSS 用 BOSSES 里的基础值（否则会取不到而报错） */
+        const base = baseStatsOf(p.speciesId);
+        if (!base) { logBattle(`🎉 <b>${p.name}</b> 升到 Lv.${p.level}！`, 'system'); continue; }
+        const statMult = 1 + (p.level - 1) * 0.08, variantMult = p.isVariant ? 1.2 : 1;
+        p.maxHp = Math.round(base.hp * statMult * variantMult); p.stats.hp = p.maxHp;
+        p.stats.atk = Math.round(base.atk * statMult * variantMult);
+        p.stats.def = Math.round(base.def * statMult * variantMult);
+        p.stats.matk = Math.round(base.matk * statMult * variantMult);
+        p.stats.mdef = Math.round(base.mdef * statMult * variantMult);
+        p.stats.spd = Math.round(base.spd * statMult * variantMult);
         p.hp = Math.min(p.hp, p.maxHp);
         logBattle(`🎉 <b>${p.name}</b> 升到 Lv.${p.level}！`, 'system');
       }
     }
     saveGame();
 
-    const proceedWin = () => { hideDialog(); backToExplore(); };
+    const proceedWin = () => { hideDialog(); if (bossRegion) exitBossBattle(); else backToExplore(); };
 
     setTimeout(() => {
-        showDialog('战斗胜利', `获得 ${gold} 金币 · ${exp} 经验`, [{ text:'继 续', cb: proceedWin }], '🏆');
+        const winText = bossRegion
+          ? '击败了「' + BOSSES[bossRegion].name + '」！\n获得 ' + gold + ' 金币 · ' + exp + ' 经验 · 传说灵气球 ×' + bossOrb
+          : '获得 ' + gold + ' 金币 · ' + exp + ' 经验';
+        showDialog(bossRegion ? '👑 霸主讨伐成功' : '战斗胜利', winText, [{ text:'继 续', cb: proceedWin }], '🏆');
 
         if (isAuto) {
             setTimeout(() => {
@@ -496,8 +560,14 @@ function endBattle(result) {
     const proceedLose = () => {
         hideDialog();
         for (const p of G.party) p.hp = p.maxHp;
+        /* 洞窟里失败：清掉洞窟状态，送回青石村 */
+        G.cave = null; G.caveReturn = null;
+        G.currentMap = 'town';
         G.px = 0; G.py = 0;
+        G.walkTarget = null;
+        if (typeof renderWorldDecor === 'function') renderWorldDecor();
         updateWorldDecor();
+        if (typeof refreshRegion === 'function') refreshRegion(true);
         backToExplore();
     };
 
@@ -510,6 +580,19 @@ function endBattle(result) {
       }
     }, 800);
   }
+}
+
+/* 从 BOSS 战回到地面探索 */
+function exitBossBattle() {
+  G.battle = null;
+  G.autoExplore = false;
+  showScreen('explore');
+  if (G.cave && typeof leaveCave === 'function') leaveCave();
+  else backToExplore();
+  saveGame();
+  if (typeof refreshRegion === 'function') refreshRegion(true);
+  if (typeof updateExploreUI === 'function') updateExploreUI();
+  toast('区域霸主已被击败');
 }
 
 function backToExplore() {

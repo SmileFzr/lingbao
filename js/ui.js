@@ -49,13 +49,23 @@ window.viewPet = function(id) {
 };
 
 function openCodex() {
-  const total = ALL_SPECIES.length, seen = Object.keys(G.codex).length;
+  const total = ALL_SPECIES.length + Object.keys(BOSSES).length;
+  const seen = Object.keys(G.codex).length;
   $('codexSub').textContent = '已见 ' + seen + ' / ' + total;
   const grid = $('codexGrid'); if (!grid) return; grid.innerHTML = '';
   for (const sp of ALL_SPECIES) {
     const s = G.codex[sp.id];
     grid.innerHTML += `<div class="codexCard ${s?'':'locked'}">
       <div class="ci">${s?sp.emoji:'❓'}</div><div class="cn">${s?sp.name:'???'}</div></div>`;
+  }
+  /* 区域霸主 */
+  for (const k in BOSSES) {
+    const b = BOSSES[k];
+    const sid = 'boss_' + k;
+    const s = G.codex[sid];
+    grid.innerHTML += `<div class="codexCard bossCard ${s?'':'locked'}">
+      <div class="ci">${s?b.emoji:'❓'}</div><div class="cn">${s?b.name:'???'}</div>
+      <div class="ctag">${G.bosses[k]?'已讨伐':'霸主'}</div></div>`;
   }
   $('codexPanel').classList.remove('hidden');
 }
@@ -104,9 +114,12 @@ function setupBattleButtons() {
       }
 
       if (act === 'capture') {
-        if (G.items['orb2'] > 0) {
+        const has = id => (G.items[id] || 0) > 0;
+        if (has('orb3')) {
+            G.battle.actions[pet.id] = { type:'item', itemId:'orb3', isCapture:true, targetId: G.battle.targetEnemyId };
+        } else if (has('orb2')) {
             G.battle.actions[pet.id] = { type:'item', itemId:'orb2', isCapture:true, targetId: G.battle.targetEnemyId };
-        } else if (G.items['orb'] > 0) {
+        } else if (has('orb')) {
             G.battle.actions[pet.id] = { type:'item', itemId:'orb', isCapture:true, targetId: G.battle.targetEnemyId };
         } else {
             toast('没有灵气球'); return;
@@ -130,7 +143,14 @@ function bindUI() {
     btnCodex: () => openCodex(), codexClose: () => $('codexPanel').classList.add('hidden'),
     bagClose: () => $('bagPanel').classList.add('hidden'), teamClose: () => $('teamPanel').classList.add('hidden'),
     btnBag: () => openBag(), btnTeam: () => openTeam(),
-    btnHome: () => { G.px = 0; G.py = 0; updateWorldDecor(); toast('回到青石村'); updateExploreUI(); },
+    btnHome: () => {
+      if (G.currentMap === 'cave' && typeof leaveCave === 'function') { leaveCave(); return; }
+      G.currentMap = 'town'; G.px = 0; G.py = 0; G.walkTarget = null;
+      if (typeof renderWorldDecor === 'function') renderWorldDecor();
+      updateWorldDecor();
+      if (typeof refreshRegion === 'function') refreshRegion(true);
+      toast('回到青石村'); updateExploreUI();
+    },
     btnAuto: () => { G.autoExplore = !G.autoExplore; updateExploreUI(); toast(G.autoExplore ? '自动探索开启' : '自动探索关闭'); },
     petClose: () => { $('petPanel').classList.add('hidden'); openTeam(); },
     petToggle: () => {
@@ -149,6 +169,7 @@ function boot() {
   if (missing.length > 0) { alert('缺少HTML元素：' + missing.join(', ')); return; }
   try { bindUI(); } catch (e) { console.error(e); }
   try { setupJoystick(); setupInteractBtn(); setupBattleButtons(); } catch (e) { console.error(e); }
+  try { if (typeof setupMapUI === 'function') setupMapUI(); } catch (e) { console.error(e); }
   if (!hasSave()) { const bc = $('btnContinue'); if (bc) bc.disabled = true; }
 }
 

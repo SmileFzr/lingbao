@@ -14,7 +14,7 @@
   <button class="btn primary" id="btnNewGame">🎮 新 的 旅 程</button>
   <button class="btn" id="btnContinue">📖 继 续 冒 险</button>
   <button class="btn" id="btnCodex">📚 灵 兽 图 鉴</button>
-  <div class="versionTag">v0.2.1 · 全自动挂机版</div>
+  <div class="versionTag">v0.3.0 · 大世界版</div>
 </div>
 
 <div class="screen hidden" id="explore">
@@ -37,6 +37,10 @@
     <div id="joyZone">
       <div id="joyBase"></div>
       <div id="joyKnob"></div>
+    </div>
+    <div id="miniMap" title="点开世界地图">
+      <canvas id="miniMapCanvas"></canvas>
+      <div class="mmTag">🗺️ 地图</div>
     </div>
     <div id="rightBtns">
       <div class="circleBtn" id="btnAuto" title="自动探索">🚶</div>
@@ -124,13 +128,30 @@
   <div id="dlgOptions"></div>
 </div>
 
+<div class="overlay hidden" id="mapPanel">
+  <div class="panel mapPanelWrap">
+    <div class="panelTitle">🗺️ 世界地图</div>
+    <div class="panelSub">点地图任意位置标记目的地</div>
+    <div id="mapCanvasWrap"><canvas id="worldMapCanvas"></canvas></div>
+    <div id="mapInfo"></div>
+    <div class="mapBtns">
+      <button class="btn" id="mapWalk">🚶 走过去</button>
+      <button class="btn primary" id="mapTeleport">✨ 传送过去</button>
+      <button class="btn" id="mapClear">清除标记</button>
+      <button class="btn" id="mapClose">关 闭</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <div id="fxLayer"></div>
 
 <script src="js/data.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/core.js"></script>
+<script src="js/world.js"></script>
 <script src="js/explore.js"></script>
+<script src="js/cave.js"></script>
 <script src="js/battle.js"></script>
 <script src="js/ui.js"></script>
 </body>
