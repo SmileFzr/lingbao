@@ -12,7 +12,7 @@ const townBuildings = [
   { id:'center', name:'灵兽中心', icon:'🏥', x:-350, y: 100,  type:'center' },
   { id:'arena',  name:'教堂',     icon:'⛪', x:   0, y:-350,  type:'arena' },
   { id:'board',  name:'任务板',   icon:'📋', x: 450, y:  50,  type:'board' },
-  { id:'smith',  name:'铁匠铺',   icon:'🔨', x:-300, y: 300,  type:'smith' },
+  { id:'smith',  name:'灵宝大师', icon:'🧙‍♂️', x:-300, y: 300,  type:'smith' },
 ];
 
 const TOWN_RADIUS  = 500;
@@ -229,7 +229,7 @@ function setupJoystick() {
   if (!zone || !base || !knob) return;
   const start = (e) => {
     if (G.screen !== 'explore') return;
-    if (e.target && (e.target.closest('#interactBtn') || e.target.closest('#rightBtns') || e.target.closest('#miniMap'))) return;
+    if (e.target && (e.target.closest('#interactBtn') || e.target.closest('#rightBtns') || e.target.closest('#miniMapCanvas'))) return;
     const t = e.touches ? e.touches[0] : e; if (exp.joyActive) return;
     exp.joyActive = true; exp.joyId = t.identifier !== undefined ? t.identifier : 'm';
     exp.joyOX = t.clientX; exp.joyOY = t.clientY; exp.joyDX = 0; exp.joyDY = 0;
@@ -598,6 +598,124 @@ function openBoard() {
     '\n\n已探索 ' + Object.keys(G.seenRegions || {}).length + ' / 5 个区域',
     [{ text:'离 开', cb: hideDialog }], '📋');
 }
+
+/* ============ 灵宝大师（原铁匠铺） ============ */
+const SKILL_LEARN_COST = 200; // 学习新技能消耗的金币
+const MUTATION_SKILLS = ['storm','blaze','tsunami','forest','quake']; // 变异技能不进入随机池
+
 function openSmith() {
-  showDialog('🔨 铁匠铺', '暂未开放（下一版会做装备强化）', [{ text:'离 开', cb: hideDialog }], '👨‍🏭');
+  showDialog('🧙‍♂️ 灵宝大师的住所', '灵宝的力量需要交换与舍弃。你要出售多余的灵宝，还是花费金币让灵宝觉醒新技能？', [
+    { text: '💰 出售灵宝', cb: openSellPetMenu },
+    { text: `📖 学习新技能 (${SKILL_LEARN_COST}金币)`, cb: openLearnSkillSelectPet },
+    { text: '离 开', cb: hideDialog }
+  ], '🧙‍♂️');
+}
+
+/* 1. 出售灵宝 */
+function openSellPetMenu() {
+  const opts = [];
+  // 过滤出不在出战队伍（G.team）中的灵宝
+  const availablePets = G.party.filter(p => !G.team.includes(p.id));
+  
+  if (availablePets.length === 0) {
+    toast('没有可出售的灵宝（出战中灵宝不可出售）');
+    return;
+  }
+
+  for (const p of availablePets) {
+    // 计算价格：等级 * 30 + 变异附加值
+    let price = p.level * 30 + (p.isVariant ? 150 : 0);
+    opts.push({
+      text: `${p.emoji} ${p.name} Lv.${p.level} (可卖 ${price} 金)`,
+      cb: () => {
+        showDialog('确认出售', `确定要出售【${p.name}】吗？\n你将获得 ${price} 金币。`, [
+          { text: '确认出售', cb: () => {
+            G.gold += price;
+            G.party = G.party.filter(x => x.id !== p.id);
+            saveGame(); updateExploreUI(); 
+            toast('已出售获得 ' + price + ' 金币');
+            hideDialog();
+          }},
+          { text: '取消', cb: openSellPetMenu }
+        ], '🧙‍♂️');
+      }
+    });
+  }
+  opts.push({ text: '返 回', cb: openSmith });
+  
+  showDialog('💰 出售灵宝', '选择要出售的灵宝：\n（出战中灵宝不可出售）', opts, '🧙‍♂️');
+}
+
+/* 2. 学习新技能 - 选择灵兽 */
+function openLearnSkillSelectPet() {
+  if (G.gold < SKILL_LEARN_COST) { 
+    toast('金币不足，需要 ' + SKILL_LEARN_COST + ' 金币'); 
+    return; 
+  }
+  
+  const opts = [];
+  for (const p of G.party) {
+    opts.push({
+      text: `${p.emoji} ${p.name} Lv.${p.level}`,
+      cb: () => openLearnSkillSelectOldSkill(p)
+    });
+  }
+  opts.push({ text: '返 回', cb: openSmith });
+  showDialog('📖 学习新技能', '选择一只灵宝来学习新技能：', opts, '🧙‍♂️');
+}
+
+/* 3. 学习新技能 - 选择要遗忘的旧技能 */
+function openLearnSkillSelectOldSkill(pet) {
+  const opts = [];
+  for (const sid of pet.skills) {
+    const sk = SKILLS[sid];
+    if (!sk) continue;
+    opts.push({
+      text: `遗忘【${sk.name}】`,
+      cb: () => rollNewSkills(pet, sid)
+    });
+  }
+  opts.push({ text: '返 回', cb: openLearnSkillSelectPet });
+  
+  showDialog(`📖 ${pet.name} 的技能`, `请选择要遗忘的技能以腾出位置：\n（将消耗 ${SKILL_LEARN_COST} 金币）`, opts, '🧙‍♂️');
+}
+
+/* 4. 扣除金币并随机抽出 3 个新技能 */
+function rollNewSkills(pet, oldSkillId) {
+  G.gold -= SKILL_LEARN_COST;
+  saveGame(); updateExploreUI();
+  
+  const oldSk = SKILLS[oldSkillId];
+  
+  // 获取所有可学习技能，排除已拥有的，排除变异技能
+  const allSkillIds = Object.keys(SKILLS).filter(id => 
+    !MUTATION_SKILLS.includes(id) && !pet.skills.includes(id)
+  );
+  
+  // 打乱顺序
+  allSkillIds.sort(() => Math.random() - 0.5);
+  // 取前 3 个
+  const choices = allSkillIds.slice(0, 3);
+  
+  const choiceOpts = [];
+  for (const newSid of choices) {
+    const nsk = SKILLS[newSid];
+    const ele = ELEMENTS[nsk.element];
+    const eleStr = ele ? ele.name + '系' : '';
+    const descStr = nsk.power > 0 ? ('威力 ' + nsk.power) : nsk.desc;
+    
+    choiceOpts.push({
+      text: `${nsk.icon} ${nsk.name} (${eleStr} · ${descStr})`,
+      cb: () => {
+        // 执行替换
+        const idx = pet.skills.indexOf(oldSkillId);
+        if (idx !== -1) pet.skills[idx] = newSid;
+        saveGame();
+        toast(`成功将【${oldSk.name}】替换为【${nsk.name}】`);
+        hideDialog();
+      }
+    });
+  }
+  
+  showDialog('✨ 技能觉醒', `灵宝大师抽出三股力量：\n（已消耗 ${SKILL_LEARN_COST} 金币，请选择一项继承）`, choiceOpts, '🧙‍♂️');
 }
