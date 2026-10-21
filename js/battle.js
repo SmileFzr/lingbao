@@ -19,7 +19,12 @@ function regionSpeciesPool(rid) {
 function startBattle(opts) {
   opts = opts || {};
   if (G.autoExplore) { G.autoExplore = false; updateExploreUI(); }
-  if (G.walkTarget) G.walkTarget = null;
+  
+  // 【需求 3】记录并清空寻路目标，以便战后恢复
+  if (G.walkTarget) {
+    G.pendingWalkTarget = G.walkTarget;
+    G.walkTarget = null;
+  }
 
   const myTeam = G.team.map(id => G.party.find(p => p.id === id)).filter(Boolean).slice(0, 5);
   if (myTeam.length === 0) { toast('没有可出战的灵兽'); return; }
@@ -382,15 +387,17 @@ function executeOneAction(item, next) {
 
       const baseRate = action.itemId === 'orb3' ? 0.6 : action.itemId === 'orb2' ? 0.4 : 0.25;
       let rate = clamp(baseRate + (1 - target.hp / target.maxHp) * 0.5, 0.05, 0.95);
-      if (target.isBoss) rate = clamp(rate * 0.35, 0.02, 0.6);   // BOSS 难抓，但不是不能抓
+      if (target.isBoss) rate = clamp(rate * 0.35, 0.02, 0.6);
 
       const curUnitEl = document.getElementById('unit_' + unit.id);
       const curTargetEl = document.getElementById('unit_' + target.id);
       if (curUnitEl && curTargetEl) {
+          playSfx('shoot');
           createProjectile(curUnitEl.getBoundingClientRect(), curTargetEl.getBoundingClientRect(), '🔮');
       }
 
       setTimeout(() => {
+        playSfx('capture');
         if (Math.random() < rate) {
           const newPet = target.isBoss
             ? createBossAlly(target.bossRegion, target.level)
@@ -417,6 +424,7 @@ function executeOneAction(item, next) {
 
       const curTargetEl = document.getElementById('unit_' + target.id);
       if (curTargetEl) {
+          playSfx('heal');
           const rect = curTargetEl.getBoundingClientRect();
           showFloatingText(rect, `+${it.value}`, '#6ee7a0');
           showHealFx(rect);
@@ -449,11 +457,24 @@ function executeOneAction(item, next) {
 
     if (sk.type === 'physical' || sk.type === 'special') {
       if (sk.type === 'physical') {
-        curUnitEl.classList.add('attack-anim');
-        setTimeout(() => curUnitEl.classList.remove('attack-anim'), 300);
+        // 【需求 4】直接冲撞过去
+        const dx = rect2.left - rect1.left;
+        const dy = rect2.top - rect1.top;
+        // 使用 Web Animations API 做冲刺动画
+        curUnitEl.animate([
+            { transform: 'translateY(-8px)' }, // 抵消 CSS active 的位移
+            { transform: `translate(${dx}px, ${dy}px) scale(1.2)` },
+            { transform: 'translateY(-8px)' }
+        ], { duration: 300, easing: 'ease-in-out' });
+        playSfx('hit');
+        
+        // 延迟伤害结算（在撞击的瞬间）
+        setTimeout(() => {}, 150);
       } else {
         const projEmoji = sk.element === 'fire' ? '🔥' : sk.element === 'water' ? '💧' : sk.element === 'metal' ? '⚡' : sk.element === 'wood' ? '🌿' : '🪨';
+        playSfx('shoot');
         createProjectile(rect1, rect2, projEmoji);
+        setTimeout(() => playSfx('hit'), 400);
       }
 
       setTimeout(() => {
@@ -482,12 +503,13 @@ function executeOneAction(item, next) {
         renderBattle();
         if (target.hp <= 0) { logBattle(`💀 <b>${target.name}</b> 倒下了`, 'system'); renderBattle(); }
         setTimeout(next, 500);
-      }, sk.type === 'physical' ? 200 : 400);
+      }, sk.type === 'physical' ? 150 : 400);
 
     } else if (sk.type === 'heal') {
       const heal = Math.round(unit.maxHp * (sk.healPct || 0.4));
       unit.hp = Math.min(unit.maxHp, unit.hp + heal);
 
+      playSfx('heal');
       showFloatingText(rect1, `+${heal}`, '#6ee7a0');
       showHealFx(rect1);
 
@@ -511,7 +533,6 @@ function endBattle(result) {
   if (result === 'win') {
     let gold = 0, exp = 0;
     for (const e of G.battle.enemies) { gold += 10 + e.level * 5; exp += 15 + e.level * 8; }
-    /* 区域 BOSS：额外金币 + 传说灵气球 + 记录讨伐 */
     const bossRegion = G.battle.isBoss ? G.battle.bossRegion : null;
     let bossOrb = 0;
     if (bossRegion && BOSSES[bossRegion]) {
@@ -526,7 +547,6 @@ function endBattle(result) {
       if (p.hp <= 0) continue; p.exp += exp;
       while (p.exp >= p.expNext) {
         p.exp -= p.expNext; p.level++; p.expNext = expForLevel(p.level);
-        /* 普通灵兽用品种基础值；被收服的 BOSS 用 BOSSES 里的基础值（否则会取不到而报错） */
         const base = baseStatsOf(p.speciesId);
         if (!base) { logBattle(`🎉 <b>${p.name}</b> 升到 Lv.${p.level}！`, 'system'); continue; }
         const statMult = 1 + (p.level - 1) * 0.08, variantMult = p.isVariant ? 1.2 : 1;
@@ -560,11 +580,11 @@ function endBattle(result) {
     const proceedLose = () => {
         hideDialog();
         for (const p of G.party) p.hp = p.maxHp;
-        /* 洞窟里失败：清掉洞窟状态，送回青石村 */
         G.cave = null; G.caveReturn = null;
         G.currentMap = 'town';
         G.px = 0; G.py = 0;
         G.walkTarget = null;
+        G.pendingWalkTarget = null;
         if (typeof renderWorldDecor === 'function') renderWorldDecor();
         updateWorldDecor();
         if (typeof refreshRegion === 'function') refreshRegion(true);
@@ -582,7 +602,6 @@ function endBattle(result) {
   }
 }
 
-/* 从 BOSS 战回到地面探索 */
 function exitBossBattle() {
   G.battle = null;
   G.autoExplore = false;
@@ -600,7 +619,14 @@ function backToExplore() {
   showScreen('explore');
   updateExploreUI();
 
-  if (G.autoBattle) {
+  // 【需求 3】恢复标记点寻路
+  if (G.pendingWalkTarget) {
+    G.walkTarget = G.pendingWalkTarget;
+    G.pendingWalkTarget = null;
+    G.autoExplore = false; // 确保不会被随机漫游覆盖
+    updateExploreUI();
+    toast('继续前往标记地点');
+  } else if (G.autoBattle) {
     G.autoExplore = true;
     if (G.currentMap === 'town') teleportToField();
     updateExploreUI();
