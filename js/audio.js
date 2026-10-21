@@ -1,10 +1,7 @@
 "use strict";
 
 /* ============================================================
-   8-bit 背景音乐合成器
-   - 用 Web Audio API 实时合成，不需要任何外部音频文件
-   - 每个场景一首曲子，自动循环
-   - 曲目结构：lead（方波旋律）+ bass（三角波低音）
+   8-bit 背景音乐与音效合成器
    ============================================================ */
 
 const NOTE_SEMITONE = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
@@ -19,139 +16,19 @@ function noteToFreq(name) {
   return 440 * Math.pow(2, (oct - 4) + (semi - 9) / 12);
 }
 
-/* ---------- 三首曲目 ----------
-   格式：[音名, 拍数]，音名为 null 表示休止
-   lead 用方波，bass 用三角波
------------------------------------ */
 const TRACKS = {
-  /* 城镇：C 大调，舒缓轻快 */
-  town: {
-    bpm: 104,
-    lead: [
-      ['C5',0.5],['E5',0.5],['G5',1],['E5',0.5],['G5',0.5],['C6',1],
-      ['A5',0.5],['G5',0.5],['E5',1],['A5',0.5],['G5',0.5],['E5',1],
-      ['F5',0.5],['A5',0.5],['C6',1],['A5',0.5],['G5',0.5],['F5',1],
-      ['G5',0.5],['B5',0.5],['D6',1],['B5',1],['G5',1]
-    ],
-    bass: [
-      ['C3',2],['G3',2],
-      ['A2',2],['E3',2],
-      ['F2',2],['C3',2],
-      ['G2',2],['D3',2]
-    ]
-  },
-
-  /* 野外：G 大调，冒险探索感 */
-  field: {
-    bpm: 128,
-    lead: [
-      ['B4',0.5],['D5',0.5],['G5',1],['D5',0.5],['B4',0.5],['G4',1],
-      ['E5',0.5],['G5',0.5],['B5',1],['G5',0.5],['E5',0.5],['B4',1],
-      ['C5',0.5],['E5',0.5],['G5',1],['E5',0.5],['C5',0.5],['G4',1],
-      ['D5',0.5],['F#5',0.5],['A5',1],['F#5',0.5],['D5',0.5],['A4',1]
-    ],
-    bass: [
-      ['G2',2],['D3',2],
-      ['E2',2],['B2',2],
-      ['C3',2],['G3',2],
-      ['D3',2],['A3',2]
-    ]
-  },
-
-  /* 战斗：E 小调，急促紧张 */
-  battle: {    bpm: 148,
-    lead: [
-      ['E5',0.5],['E5',0.5],['G5',0.5],['B5',0.5],['A5',0.5],['G5',0.5],['E5',0.5],['D5',0.5],
-      ['C5',0.5],['C5',0.5],['E5',0.5],['G5',0.5],['A5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],
-      ['B4',0.5],['B4',0.5],['D5',0.5],['G5',0.5],['F#5',0.5],['E5',0.5],['D5',0.5],['B4',0.5],
-      ['A4',0.5],['A4',0.5],['D5',0.5],['F#5',0.5],['A5',0.5],['F#5',0.5],['D5',0.5],['A4',0.5]
-    ],
-    bass: [
-      ['E2',0.5],['E2',0.5],['E3',0.5],['E2',0.5],['E2',0.5],['E2',0.5],['E3',0.5],['E2',0.5],
-      ['C3',0.5],['C3',0.5],['C2',0.5],['C3',0.5],['C3',0.5],['C3',0.5],['C2',0.5],['C3',0.5],
-      ['G2',0.5],['G2',0.5],['G3',0.5],['G2',0.5],['G2',0.5],['G2',0.5],['G3',0.5],['G2',0.5],
-      ['D3',0.5],['D3',0.5],['D2',0.5],['D3',0.5],['D3',0.5],['D3',0.5],['D2',0.5],['D3',0.5]
-    ]
-  },
-
-  /* 森林：A 小调，空灵神秘 */
-  forest: {
-    bpm: 100,
-    lead: [
-      ['A4',0.5],['C5',0.5],['E5',1],['D5',0.5],['C5',0.5],['A4',1],
-      ['G4',0.5],['A4',0.5],['C5',1],['B4',0.5],['A4',0.5],['G4',1],
-      ['F5',0.5],['E5',0.5],['D5',1],['C5',0.5],['B4',0.5],['A4',1],
-      ['E5',0.5],['D5',0.5],['C5',1],['A4',2]
-    ],
-    bass: [
-      ['A2',2],['F2',2],
-      ['C3',2],['G2',2],
-      ['F2',2],['C3',2],
-      ['E2',2],['A2',2]
-    ]
-  },
-
-  /* 沙漠：D 和声小调，异域感 */
-  desert: {
-    bpm: 112,
-    lead: [
-      ['D5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],
-      ['D5',0.5],['C5',0.5],['D5',1],['F5',0.5],['E5',0.5],['D5',1],
-      ['A5',0.5],['Bb5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],
-      ['D5',0.5],['E5',0.5],['F5',1],['D5',2]
-    ],
-    bass: [
-      ['D2',2],['A2',2],
-      ['C3',2],['G2',2],
-      ['Bb2',2],['F2',2],
-      ['D2',2],['A2',2]
-    ]
-  },
-
-  /* 海洋：F 大调，起伏流动 */
-  ocean: {
-    bpm: 96,
-    lead: [
-      ['F5',0.5],['A5',0.5],['C6',1],['A5',0.5],['G5',0.5],['F5',1],
-      ['E5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],
-      ['D5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],
-      ['C5',0.5],['F5',0.5],['A5',1],['F5',2]
-    ],
-    bass: [
-      ['F2',2],['C3',2],
-      ['D3',2],['Bb2',2],
-      ['F2',2],['C3',2],
-      ['Bb2',2],['F2',2]
-    ]
-  },
-
-  /* 废墟：C 小调，阴冷不安 */
-  ruins: {
-    bpm: 88,
-    lead: [
-      ['C5',0.5],['Eb5',0.5],['G5',1],['F5',0.5],['Eb5',0.5],['C5',1],
-      ['B4',0.5],['C5',0.5],['Eb5',1],['D5',0.5],['C5',0.5],['B4',1],
-      ['Ab5',0.5],['G5',0.5],['F5',1],['Eb5',0.5],['D5',0.5],['C5',1],
-      ['G4',0.5],['C5',0.5],['Eb5',1],['C5',2]
-    ],
-    bass: [
-      ['C2',2],['Ab2',2],
-      ['G2',2],['F2',2],
-      ['Ab2',2],['Eb2',2],
-      ['G2',2],['C2',2]
-    ]
-  }
+  town: { bpm: 104, lead: [['C5',0.5],['E5',0.5],['G5',1],['E5',0.5],['G5',0.5],['C6',1],['A5',0.5],['G5',0.5],['E5',1],['A5',0.5],['G5',0.5],['E5',1],['F5',0.5],['A5',0.5],['C6',1],['A5',0.5],['G5',0.5],['F5',1],['G5',0.5],['B5',0.5],['D6',1],['B5',1],['G5',1]], bass: [['C3',2],['G3',2],['A2',2],['E3',2],['F2',2],['C3',2],['G2',2],['D3',2]] },
+  field: { bpm: 128, lead: [['B4',0.5],['D5',0.5],['G5',1],['D5',0.5],['B4',0.5],['G4',1],['E5',0.5],['G5',0.5],['B5',1],['G5',0.5],['E5',0.5],['B4',1],['C5',0.5],['E5',0.5],['G5',1],['E5',0.5],['C5',0.5],['G4',1],['D5',0.5],['F#5',0.5],['A5',1],['F#5',0.5],['D5',0.5],['A4',1]], bass: [['G2',2],['D3',2],['E2',2],['B2',2],['C3',2],['G3',2],['D3',2],['A3',2]] },
+  battle: { bpm: 148, lead: [['E5',0.5],['E5',0.5],['G5',0.5],['B5',0.5],['A5',0.5],['G5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['C5',0.5],['E5',0.5],['G5',0.5],['A5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],['B4',0.5],['B4',0.5],['D5',0.5],['G5',0.5],['F#5',0.5],['E5',0.5],['D5',0.5],['B4',0.5],['A4',0.5],['A4',0.5],['D5',0.5],['F#5',0.5],['A5',0.5],['F#5',0.5],['D5',0.5],['A4',0.5]], bass: [['E2',0.5],['E2',0.5],['E3',0.5],['E2',0.5],['E2',0.5],['E2',0.5],['E3',0.5],['E2',0.5],['C3',0.5],['C3',0.5],['C2',0.5],['C3',0.5],['C3',0.5],['C3',0.5],['C2',0.5],['C3',0.5],['G2',0.5],['G2',0.5],['G3',0.5],['G2',0.5],['G2',0.5],['G2',0.5],['G3',0.5],['G2',0.5],['D3',0.5],['D3',0.5],['D2',0.5],['D3',0.5],['D3',0.5],['D3',0.5],['D2',0.5],['D3',0.5]] },
+  forest: { bpm: 100, lead: [['A4',0.5],['C5',0.5],['E5',1],['D5',0.5],['C5',0.5],['A4',1],['G4',0.5],['A4',0.5],['C5',1],['B4',0.5],['A4',0.5],['G4',1],['F5',0.5],['E5',0.5],['D5',1],['C5',0.5],['B4',0.5],['A4',1],['E5',0.5],['D5',0.5],['C5',1],['A4',2]], bass: [['A2',2],['F2',2],['C3',2],['G2',2],['F2',2],['C3',2],['E2',2],['A2',2]] },
+  desert: { bpm: 112, lead: [['D5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],['D5',0.5],['C5',0.5],['D5',1],['F5',0.5],['E5',0.5],['D5',1],['A5',0.5],['Bb5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],['D5',0.5],['E5',0.5],['F5',1],['D5',2]], bass: [['D2',2],['A2',2],['C3',2],['G2',2],['Bb2',2],['F2',2],['D2',2],['A2',2]] },
+  ocean: { bpm: 96, lead: [['F5',0.5],['A5',0.5],['C6',1],['A5',0.5],['G5',0.5],['F5',1],['E5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],['D5',0.5],['F5',0.5],['A5',1],['G5',0.5],['F5',0.5],['E5',1],['C5',0.5],['F5',0.5],['A5',1],['F5',2]], bass: [['F2',2],['C3',2],['D3',2],['Bb2',2],['F2',2],['C3',2],['Bb2',2],['F2',2]] },
+  ruins: { bpm: 88, lead: [['C5',0.5],['Eb5',0.5],['G5',1],['F5',0.5],['Eb5',0.5],['C5',1],['B4',0.5],['C5',0.5],['Eb5',1],['D5',0.5],['C5',0.5],['B4',1],['Ab5',0.5],['G5',0.5],['F5',1],['Eb5',0.5],['D5',0.5],['C5',1],['G4',0.5],['C5',0.5],['Eb5',1],['C5',2]], bass: [['C2',2],['Ab2',2],['G2',2],['F2',2],['Ab2',2],['Eb2',2],['G2',2],['C2',2]] }
 };
 
-/* ---------- 播放引擎 ---------- */
 const AudioEngine = {
-  ctx: null,
-  master: null,
-  track: null,
-  trackName: null,
-  lead: { index: 0, next: 0 },
-  bass: { index: 0, next: 0 },
-  timer: null
+  ctx: null, master: null, track: null, trackName: null,
+  lead: { index: 0, next: 0 }, bass: { index: 0, next: 0 }, timer: null
 };
 
 function ensureAudio() {
@@ -164,10 +41,7 @@ function ensureAudio() {
     AudioEngine.master.gain.value = 0.22;
     AudioEngine.master.connect(AudioEngine.ctx.destination);
     return true;
-  } catch (e) {
-    AudioEngine.ctx = null;
-    return false;
-  }
+  } catch (e) { AudioEngine.ctx = null; return false; }
 }
 
 function resumeAudio() {
@@ -176,7 +50,6 @@ function resumeAudio() {
   }
 }
 
-/* 播放一个单音（自带 attack / release，避免爆音） */
 function playNote(freq, time, dur, type, vol) {
   if (!freq) return;
   const ctx = AudioEngine.ctx;
@@ -184,27 +57,20 @@ function playNote(freq, time, dur, type, vol) {
   const gain = ctx.createGain();
   osc.type = type;
   osc.frequency.value = freq;
-
   const attack = 0.008;
   const release = Math.min(0.08, dur * 0.35);
   const sustainEnd = Math.max(time + attack, time + dur - release);
-
   gain.gain.setValueAtTime(0.0001, time);
   gain.gain.linearRampToValueAtTime(vol, time + attack);
   gain.gain.setValueAtTime(vol, sustainEnd);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-
-  osc.connect(gain);
-  gain.connect(AudioEngine.master);
-  osc.start(time);
-  osc.stop(time + dur + 0.02);
+  osc.connect(gain); gain.connect(AudioEngine.master);
+  osc.start(time); osc.stop(time + dur + 0.02);
 }
 
-/* 前瞻调度器：每 25ms 检查一次，把未来 150ms 的音符安排上 */
 function audioScheduler() {
   if (!AudioEngine.ctx || !AudioEngine.track) return;
   if (AudioEngine.ctx.state === 'suspended') return;
-
   const track = AudioEngine.track;
   const spb = 60 / track.bpm;
   const lookahead = AudioEngine.ctx.currentTime + 0.15;
@@ -212,63 +78,81 @@ function audioScheduler() {
   let guard = 0;
   while (AudioEngine.lead.next < lookahead && guard++ < 16) {
     const item = track.lead[AudioEngine.lead.index % track.lead.length];
-    const name = item[0], beats = item[1];
-    const dur = beats * spb;
-    if (name) {
-      playNote(noteToFreq(name), AudioEngine.lead.next, dur * 0.92, 'square', 0.18);
-    }
-    AudioEngine.lead.next += dur;
-    AudioEngine.lead.index++;
+    if (item[0]) playNote(noteToFreq(item[0]), AudioEngine.lead.next, item[1] * spb * 0.92, 'square', 0.18);
+    AudioEngine.lead.next += item[1] * spb; AudioEngine.lead.index++;
   }
-
   guard = 0;
   while (AudioEngine.bass.next < lookahead && guard++ < 16) {
     const item = track.bass[AudioEngine.bass.index % track.bass.length];
-    const name = item[0], beats = item[1];
-    const dur = beats * spb;
-    if (name) {
-      playNote(noteToFreq(name), AudioEngine.bass.next, dur * 0.95, 'triangle', 0.34);
-    }
-    AudioEngine.bass.next += dur;
-    AudioEngine.bass.index++;
+    if (item[0]) playNote(noteToFreq(item[0]), AudioEngine.bass.next, item[1] * spb * 0.95, 'triangle', 0.34);
+    AudioEngine.bass.next += item[1] * spb; AudioEngine.bass.index++;
   }
 }
 
-/* 对外接口：切换曲目（同名不会重复启动） */
 function playMusic(name) {
   if (!name) return;
   if (AudioEngine.trackName === name && AudioEngine.track) return;
-  if (!ensureAudio()) return;
-  resumeAudio();
-
-  const track = TRACKS[name];
-  if (!track) return;
-
+  if (!ensureAudio()) return; resumeAudio();
+  const track = TRACKS[name]; if (!track) return;
   const start = AudioEngine.ctx.currentTime + 0.06;
-  AudioEngine.track = track;
-  AudioEngine.trackName = name;
-  AudioEngine.lead = { index: 0, next: start };
-  AudioEngine.bass = { index: 0, next: start };
-
-  if (!AudioEngine.timer) {
-    AudioEngine.timer = setInterval(audioScheduler, 25);
-    audioScheduler();
-  }
+  AudioEngine.track = track; AudioEngine.trackName = name;
+  AudioEngine.lead = { index: 0, next: start }; AudioEngine.bass = { index: 0, next: start };
+  if (!AudioEngine.timer) { AudioEngine.timer = setInterval(audioScheduler, 25); audioScheduler(); }
 }
 
 function stopMusic() {
-  AudioEngine.track = null;
-  AudioEngine.trackName = null;
-  if (AudioEngine.timer) {
-    clearInterval(AudioEngine.timer);
-    AudioEngine.timer = null;
+  AudioEngine.track = null; AudioEngine.trackName = null;
+  if (AudioEngine.timer) { clearInterval(AudioEngine.timer); AudioEngine.timer = null; }
+}
+
+/* ============================================================
+   8-bit 实时音效合成器 (SFX)
+   ============================================================ */
+function playSfx(type) {
+  if (!ensureAudio()) return;
+  resumeAudio();
+  const ctx = AudioEngine.ctx;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain); gain.connect(AudioEngine.master);
+
+  if (type === 'hit') {
+    // 撞击/打击：短促方波骤降
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+    gain.gain.setValueAtTime(0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+    osc.start(t); osc.stop(t + 0.1);
+  } else if (type === 'shoot') {
+    // 法术发射：高频锯齿波上升
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.linearRampToValueAtTime(800, t + 0.15);
+    gain.gain.setValueAtTime(0.15, t);
+    gain.gain.linearRampToValueAtTime(0.01, t + 0.15);
+    osc.start(t); osc.stop(t + 0.15);
+  } else if (type === 'heal') {
+    // 治疗：正弦波琶音
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, t);
+    osc.frequency.setValueAtTime(554, t + 0.05);
+    osc.frequency.setValueAtTime(659, t + 0.1);
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+    osc.start(t); osc.stop(t + 0.3);
+  } else if (type === 'capture') {
+    // 捕捉：快速抖动的方波
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(600, t);
+    osc.frequency.setValueAtTime(800, t + 0.05);
+    osc.frequency.setValueAtTime(600, t + 0.1);
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+    osc.start(t); osc.stop(t + 0.2);
   }
 }
 
-/* 移动端音频解锁：任何一次点击/触摸都尝试恢复 AudioContext */
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) resumeAudio();
-});
-['touchstart','mousedown','keydown'].forEach(ev => {
-  window.addEventListener(ev, resumeAudio, { passive: true });
-});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeAudio(); });
+['touchstart','mousedown','keydown'].forEach(ev => { window.addEventListener(ev, resumeAudio, { passive: true }); });
